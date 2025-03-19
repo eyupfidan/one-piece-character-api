@@ -66,7 +66,6 @@ async function getCrewList() {
   return crews;
 }
 
-// Karakter detay sayfasının HTML içeriğini çekmek
 async function getCharacterDetails(characterName) {
   const url = `https://onepiece.fandom.com/wiki/${characterName}`;
   const content = await fetchPageContent(url, 'section.pi-item.pi-group.pi-border-color');
