@@ -1,5 +1,5 @@
 const cheerio = require('cheerio');
-const scrapingService = require('../services/scrapingService');
+const dbService = require('../services/dbService');
 const extractSectionData = require('../utils/extractSection');
 
 const statisticsMapping = {
@@ -36,7 +36,8 @@ const devilFruitMapping = {
 
 async function listCharacters(req, res) {
   try {
-    const characters = await scrapingService.getCharacterList();
+    const sql = 'SELECT * FROM characters ORDER BY name';
+    const characters = await dbService.query(sql);
     res.json(characters);
   } catch (error) {
     console.error('Character list error:', error);
@@ -47,20 +48,14 @@ async function listCharacters(req, res) {
 async function getCharacterDetail(req, res) {
   try {
     const characterName = req.params.name;
-    const content = await scrapingService.getCharacterDetails(characterName);
-    const $ = cheerio.load(content);
-
-    const statisticsData = extractSectionData($, 'Statistics', statisticsMapping);
-    const portrayalData = extractSectionData($, 'Portrayal', portrayalMapping);
-    const devilFruitData = extractSectionData($, 'Devil Fruit', devilFruitMapping);
-
-    const result = {};
-    if (statisticsData) result.statistics = statisticsData;
-    if (portrayalData) result.portrayal = portrayalData;
-    if (devilFruitData) result.devilFruit = devilFruitData;
-
-    console.log(`Extracted details for ${characterName}:`, result);
-    res.json(result);
+    const sql = 'SELECT * FROM character_details WHERE name = ?';
+    const characterDetails = await dbService.query(sql, [characterName]);
+    
+    if (characterDetails && characterDetails.length > 0) {
+      res.json(characterDetails[0]);
+    } else {
+      res.status(404).json({ error: 'Karakter bulunamadı' });
+    }
   } catch (error) {
     console.error('Character detail error:', error);
     res.status(500).json({ error: 'Karakter detay çekilirken hata oluştu' });

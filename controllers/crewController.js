@@ -1,8 +1,9 @@
-const scrapingService = require('../services/scrapingService');
+const dbService = require('../services/dbService');
 
 async function listCrews(req, res) {
   try {
-    const crews = await scrapingService.getCrewList();
+    const sql = 'SELECT * FROM crews ORDER BY name';
+    const crews = await dbService.query(sql);
     res.json(crews);
   } catch (error) {
     console.error('Crew list error:', error);
