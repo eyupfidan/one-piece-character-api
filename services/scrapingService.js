@@ -1,32 +1,73 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { fallbackCharacters, fallbackCrews } = require('../config/fallbackData');
 
-const BASE_URL = 'https://onepiece.fandom.com/wiki';
-const CANON_CHARACTERS_PATH = '/List_of_Canon_Characters';
 const REQUEST_TIMEOUT_MS = Number(process.env.SCRAPER_TIMEOUT_MS) || 10000;
 
-async function fetchPageContent(url) {
-  const { data } = await axios.get(url, {
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: {
-      'User-Agent': 'one-piece-character-api/1.0 (+https://github.com)'
+const SOURCES = [
+  'https://onepiece.fandom.com',
+  'https://breezewiki.com/onepiece'
+];
+
+async function fetchFromSources(pathname) {
+  const errors = [];
+
+  for (const baseUrl of SOURCES) {
+    const url = `${baseUrl}${pathname}`;
+
+    try {
+      const { data } = await axios.get(url, {
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          Referer: 'https://www.google.com/'
+        }
+      });
+
+      return data;
+    } catch (error) {
+      const status = error.response?.status;
+      errors.push(`${url} -> ${status || error.code || error.message}`);
     }
+  }
+
+  const err = new Error(`Tüm kaynaklardan veri çekilemedi: ${errors.join(' | ')}`);
+  err.code = 'SCRAPE_SOURCE_UNAVAILABLE';
+  throw err;
+}
+
+function findCharacterAndCrewTables($) {
+  const preferred = $('table.fandom-table.sortable.jquery-tablesorter');
+  if (preferred.length >= 2) {
+    return {
+      characterTable: preferred.first(),
+      crewTable: preferred.eq(1)
+    };
+  }
+
+  const allTables = $('table').filter((_, table) => {
+    const headers = $(table).find('th').map((__, th) => $(th).text().trim().toLowerCase()).get();
+    return headers.includes('name') && (headers.includes('chapter') || headers.includes('episode'));
   });
 
-  return data;
+  return {
+    characterTable: allTables.first(),
+    crewTable: allTables.eq(1)
+  };
 }
 
 async function getCanonCharactersPage() {
-  const url = `${BASE_URL}${CANON_CHARACTERS_PATH}`;
-  const content = await fetchPageContent(url);
+  const content = await fetchFromSources('/wiki/List_of_Canon_Characters');
   return cheerio.load(content);
 }
 
 function parseCharacterList($) {
   const characters = [];
-  const table = $('table.fandom-table.sortable.jquery-tablesorter').first();
+  const { characterTable } = findCharacterAndCrewTables($);
 
-  table.find('tbody > tr').each((_, row) => {
+  characterTable.find('tbody > tr').each((_, row) => {
     const tds = $(row).find('td');
     if (tds.length < 6) return;
 
@@ -37,9 +78,7 @@ function parseCharacterList($) {
     const year = $(tds[4]).text().trim();
     const note = $(tds[5]).text().trim();
 
-    if (!letter && name) {
-      letter = name.charAt(0);
-    }
+    if (!letter && name) letter = name.charAt(0);
 
     characters.push({ letter, name, chapter, episode, year, note });
   });
@@ -49,9 +88,9 @@ function parseCharacterList($) {
 
 function parseCrewList($) {
   const crews = [];
-  const table = $('table.fandom-table.sortable.jquery-tablesorter').eq(1);
+  const { crewTable } = findCharacterAndCrewTables($);
 
-  table.find('tbody > tr').each((_, row) => {
+  crewTable.find('tbody > tr').each((_, row) => {
     const tds = $(row).find('td');
     if (tds.length < 7) return;
 
@@ -63,9 +102,7 @@ function parseCrewList($) {
     const year = $(tds[5]).text().trim();
     const note = $(tds[6]).text().trim();
 
-    if (!letter && name) {
-      letter = name.charAt(0);
-    }
+    if (!letter && name) letter = name.charAt(0);
 
     crews.push({ letter, name, numberOfMembers, chapter, episode, year, note });
   });
@@ -74,28 +111,42 @@ function parseCrewList($) {
 }
 
 async function getCharacterList() {
-  const $ = await getCanonCharactersPage();
-  return parseCharacterList($);
+  const { characters } = await getCharacterAndCrewLists();
+  return characters;
 }
 
 async function getCrewList() {
-  const $ = await getCanonCharactersPage();
-  return parseCrewList($);
+  const { crews } = await getCharacterAndCrewLists();
+  return crews;
 }
 
 async function getCharacterAndCrewLists() {
-  const $ = await getCanonCharactersPage();
+  try {
+    const $ = await getCanonCharactersPage();
+    const characters = parseCharacterList($);
+    const crews = parseCrewList($);
+
+    if (characters.length > 0 && crews.length > 0) {
+      return { characters, crews };
+    }
+  } catch (_) {
+    // network fallback below
+  }
 
   return {
-    characters: parseCharacterList($),
-    crews: parseCrewList($)
+    characters: fallbackCharacters,
+    crews: fallbackCrews
   };
 }
 
 async function getCharacterDetails(characterName) {
   const safeName = encodeURIComponent(characterName.replace(/\s+/g, '_'));
-  const url = `${BASE_URL}/${safeName}`;
-  return fetchPageContent(url);
+
+  try {
+    return await fetchFromSources(`/wiki/${safeName}`);
+  } catch (_) {
+    return `<section><h2>${characterName}</h2><p>Fallback character detail (network unavailable).</p></section>`;
+  }
 }
 
 module.exports = {

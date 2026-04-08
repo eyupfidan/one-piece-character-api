@@ -66,21 +66,24 @@ async function updateCharacterDetails(characters, batchSize = Number(process.env
 
         const columns = Object.keys(detailData).join(', ');
         const values = Object.keys(detailData).map(() => '?').join(', ');
-        const updates = Object.keys(detailData)
-          .filter(key => key !== 'name')
-          .map(key => `${key}=?`)
-          .join(', ');
+        const updateKeys = Object.keys(detailData).filter(key => key !== 'name');
+        const updates = updateKeys.map(key => `${key}=?`).join(', ');
 
-        const detailSql = `
+        const detailSql = updates
+          ? `
           INSERT INTO character_details (${columns})
           VALUES (${values})
           ON CONFLICT(name) DO UPDATE SET ${updates};
+        `
+          : `
+          INSERT INTO character_details (${columns})
+          VALUES (${values})
+          ON CONFLICT(name) DO NOTHING;
         `;
 
-        const detailParams = [
-          ...Object.values(detailData),
-          ...Object.values(detailData).slice(1)
-        ];
+        const detailParams = updates
+          ? [...Object.values(detailData), ...Object.values(detailData).slice(1)]
+          : [...Object.values(detailData)];
 
         await dbService.query(detailSql, detailParams);
         console.log(`Updated details for character: ${char.name}`);
@@ -138,7 +141,7 @@ async function updateDatabase() {
 
     console.log("Daily scraping job completed.");
   } catch (err) {
-    console.error("Error in daily scraping job:", err);
+    console.error("Error in daily scraping job:", err.message || err);
   }
 }
 

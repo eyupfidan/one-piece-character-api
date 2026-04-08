@@ -32,3 +32,4 @@ SCRAPER_TIMEOUT_MS=10000
 ## Notlar
 - Scrape tarafında `403` görülmesi, genelde hedef sitenin Cloudflare bot korumasıdır.
 - API yine de açılır ve DB'deki mevcut verileri sunar.
+- Tüm dış kaynaklar 403 verirse uygulama otomatik olarak gömülü fallback seed verisini kullanır; uçlar boş dönmez.
