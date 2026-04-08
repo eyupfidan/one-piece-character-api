@@ -40,7 +40,7 @@ const devilFruitMapping = {
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Karakter detaylarını güncelleme fonksiyonu
-async function updateCharacterDetails(characters, batchSize = 5) {
+async function updateCharacterDetails(characters, batchSize = Number(process.env.DETAIL_BATCH_SIZE) || 5) {
   console.log("Karakter detayları güncelleniyor...");
   
   // Karakterleri batch'lere böl
@@ -74,7 +74,7 @@ async function updateCharacterDetails(characters, batchSize = 5) {
         const detailSql = `
           INSERT INTO character_details (${columns})
           VALUES (${values})
-          ON DUPLICATE KEY UPDATE ${updates};
+          ON CONFLICT(name) DO UPDATE SET ${updates};
         `;
 
         const detailParams = [
@@ -98,13 +98,14 @@ async function updateDatabase() {
   try {
     console.log("Starting daily scraping job...");
 
-    // Karakter listesini güncelleme
-    const characters = await scrapingService.getCharacterList();
+    // Tek ağ isteği ile karakter ve mürettebat listelerini al
+    const { characters, crews } = await scrapingService.getCharacterAndCrewLists();
     for (const char of characters) {
       const sql = `
         INSERT INTO characters (letter, name, chapter, episode, year, note)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE letter=?, chapter=?, episode=?, year=?, note=?;
+        ON CONFLICT(name) DO UPDATE SET
+          letter=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
       `;
       const params = [
         char.letter, char.name, char.chapter, char.episode, char.year, char.note,
@@ -115,12 +116,12 @@ async function updateDatabase() {
     console.log("Character list updated.");
 
     // Mürettebat listesini güncelleme
-    const crews = await scrapingService.getCrewList();
     for (const crew of crews) {
       const sql = `
         INSERT INTO crews (letter, name, numberOfMembers, chapter, episode, year, note)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE letter=?, numberOfMembers=?, chapter=?, episode=?, year=?, note=?;
+        ON CONFLICT(name) DO UPDATE SET
+          letter=?, numberOfMembers=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
       `;
       const params = [
         crew.letter, crew.name, crew.numberOfMembers, crew.chapter, crew.episode, crew.year, crew.note,
