@@ -54,6 +54,25 @@ function runSqlWithNative(sql, params = []) {
   return { changes: result.changes, lastID: result.lastInsertRowid };
 }
 
+
+async function runSqlWithRetry(sql, attempts = 4) {
+  let lastError;
+
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await runSqlWithCli(sql);
+    } catch (error) {
+      lastError = error;
+      const locked = error.code === 5 || /database is locked/i.test(error.stderr || error.message || '');
+      if (!locked || i === attempts - 1) break;
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(resolve => setTimeout(resolve, 150 * (i + 1)));
+    }
+  }
+
+  throw lastError;
+}
+
 async function query(sql, params = []) {
   if (nativeDb) {
     return runSqlWithNative(sql, params);
@@ -64,10 +83,10 @@ async function query(sql, params = []) {
 
   try {
     if (normalized.startsWith('SELECT') || normalized.startsWith('PRAGMA')) {
-      return await runSqlWithCli(`PRAGMA foreign_keys = ON; ${boundSql}`);
+      return await runSqlWithRetry(`PRAGMA foreign_keys = ON; ${boundSql}`);
     }
 
-    const result = await runSqlWithCli(
+    const result = await runSqlWithRetry(
       `PRAGMA foreign_keys = ON; ${boundSql}; SELECT changes() AS changes, last_insert_rowid() AS lastID;`
     );
 

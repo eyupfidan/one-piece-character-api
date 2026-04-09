@@ -10,9 +10,30 @@ const BASE_PORT = Number(process.env.PORT) || 3000;
 
 const characterRoutes = require('./routes/characterRoutes');
 const crewRoutes = require('./routes/crewRoutes');
+const exportRoutes = require('./routes/exportRoutes');
 
 app.use('/api/character', characterRoutes);
 app.use('/api/crew', crewRoutes);
+app.use('/api/export', exportRoutes);
+
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const tester = net.createServer()
+      .once('error', () => resolve(false))
+      .once('listening', () => tester.close(() => resolve(true)))
+      .listen(port, '0.0.0.0');
+  });
+}
+
+async function findAvailablePort(startPort, maxTries = 20) {
+  for (let offset = 0; offset < maxTries; offset += 1) {
+    const port = startPort + offset;
+    // eslint-disable-next-line no-await-in-loop
+    if (await isPortAvailable(port)) return port;
+  }
+
+  throw new Error(`Kullanılabilir port bulunamadı. Başlangıç portu: ${startPort}`);
+}
 
 function isPortAvailable(port) {
   return new Promise((resolve) => {

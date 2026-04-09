@@ -1,14 +1,14 @@
 # One Piece Character API (English)
 
-Lightweight REST API that stores One Piece data in SQLite and keeps it fresh with scheduled scraping.
+A high-availability One Piece API with SQLite persistence, resilient data ingestion, rich exports, and startup bootstrap.
 
-## Features
-- Express REST API
-- SQLite local persistence (`data/onepiece.db`)
-- Fast startup with automatic seed bootstrap after local DB deletion
-- Daily background sync with cron
-- Character and crew listing, details, and export endpoints
-- Automatic port fallback (`3000` -> `3001` -> ...)
+## Highlights
+- Fast startup with automatic local bootstrap after DB deletion
+- Multi-source scraping + automatic fallback seed data
+- Paginated/searchable endpoints
+- Rich JSON + CSV exports
+- Full consolidated export endpoint
+- Automatic port fallback (`3000` → `3001` → ...)
 
 ## Setup
 ```bash
@@ -27,17 +27,26 @@ SCRAPER_TIMEOUT_MS=10000
 
 ## API Endpoints
 ### Characters
-- `GET /api/character?limit=50&offset=0&q=luffy`
+- `GET /api/character?limit=50&offset=0&q=luffy&includeDetails=true`
 - `GET /api/character/:name`
+- `GET /api/character/stats`
 - `GET /api/character/export/json`
 - `GET /api/character/export/csv`
 
 ### Crews
 - `GET /api/crew?limit=50&offset=0&q=straw`
+- `GET /api/crew/stats`
 - `GET /api/crew/export/json`
 - `GET /api/crew/export/csv`
 
-## Reliability Notes
-- If scraping returns `403`, the app tries multiple sources automatically.
-- If all external sources fail, the API uses an internal seed dataset so requests still return usable data.
-- If the local SQLite file is deleted, the app re-seeds core data on startup automatically.
+### Global Export
+- `GET /api/export/full/json`
+
+## Reliability & Performance
+- If external sources return `403`, the system tries alternative sources.
+- If all sources fail, internal seed data is used to keep the API responsive.
+- If `data/onepiece.db` is deleted, bootstrap reseeds core data instantly at startup.
+
+## Collaboration / Merge-conflict Reduction
+- `.gitattributes` is configured to reduce lockfile merge conflicts (`package-lock.json merge=union`).
+- Legacy `README.md` is marked as non-merge/non-diff to avoid recurring binary-diff PR issues.

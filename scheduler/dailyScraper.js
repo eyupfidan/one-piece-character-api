@@ -3,6 +3,7 @@ const scrapingService = require('../services/scrapingService');
 const dbService = require('../services/dbService');
 const cheerio = require('cheerio');
 const extractSectionData = require('../utils/extractSection');
+const { writeCache } = require('../services/cacheService');
 
 const statisticsMapping = {
   jname: 'japaneseName',
@@ -47,8 +48,8 @@ async function updateCharacterDetails(characters, batchSize = Number(process.env
   for (let i = 0; i < characters.length; i += batchSize) {
     const batch = characters.slice(i, i + batchSize);
     
-    // Her batch için parallel işlem
-    await Promise.all(batch.map(async (char) => {
+    // Her batch için sıralı işlem (SQLite lock riskini azaltır)
+    for (const char of batch) {
       try {
         const content = await scrapingService.getCharacterDetails(char.name);
         const $ = cheerio.load(content);
@@ -88,9 +89,9 @@ async function updateCharacterDetails(characters, batchSize = Number(process.env
         await dbService.query(detailSql, detailParams);
         console.log(`Updated details for character: ${char.name}`);
       } catch (detailError) {
-        console.error(`Error updating details for ${char.name}:`, detailError);
+        console.error(`Error updating details for ${char.name}:`, detailError.message || detailError);
       }
-    }));
+    }
 
     // Her batch sonrası bekle
     await delay(1000);
@@ -133,6 +134,8 @@ async function updateDatabase() {
       await dbService.query(sql, params);
     }
     console.log("Crew list updated.");
+
+    await writeCache({ characters, crews });
 
     // Karakter detaylarını arka planda güncelle
     updateCharacterDetails(characters).catch(error => {

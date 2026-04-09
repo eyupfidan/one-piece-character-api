@@ -27,18 +27,18 @@ async function listCrews(req, res) {
   try {
     const { limit, offset, search } = parsePagination(req.query);
 
-    const where = search ? 'WHERE name LIKE ?' : '';
+    const where = search ? 'WHERE c.name LIKE ?' : '';
     const params = search ? [`%${search}%`, limit, offset] : [limit, offset];
 
     const sql = `
-      SELECT *
-      FROM crews
+      SELECT c.*
+      FROM crews c
       ${where}
-      ORDER BY name
+      ORDER BY c.name
       LIMIT ? OFFSET ?
     `;
 
-    const countSql = `SELECT COUNT(*) as total FROM crews ${where}`;
+    const countSql = `SELECT COUNT(*) as total FROM crews c ${where}`;
     const countParams = search ? [`%${search}%`] : [];
 
     const [crews, countRows] = await Promise.all([
@@ -85,8 +85,27 @@ async function exportCrewsCsv(req, res) {
   }
 }
 
+
+async function crewStats(req, res) {
+  try {
+    const [countRows, letterRows] = await Promise.all([
+      dbService.query('SELECT COUNT(*) as total FROM crews'),
+      dbService.query('SELECT letter, COUNT(*) as total FROM crews GROUP BY letter ORDER BY total DESC LIMIT 10')
+    ]);
+
+    res.json({
+      totalCrews: Number(countRows?.[0]?.total || 0),
+      topLetters: letterRows
+    });
+  } catch (error) {
+    console.error('Crew stats error:', error);
+    res.status(500).json({ error: 'Mürettebat istatistikleri alınamadı' });
+  }
+}
+
 module.exports = {
   listCrews,
   exportCrewsJson,
-  exportCrewsCsv
+  exportCrewsCsv,
+  crewStats
 };
