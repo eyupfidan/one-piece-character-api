@@ -3,6 +3,7 @@ const net = require('net');
 const express = require('express');
 const { initializeDatabase } = require('./services/dbInitService');
 const updateDatabase = require('./scheduler/dailyScraper');
+const { bootstrapLocalData } = require('./services/bootstrapService');
 
 const app = express();
 const BASE_PORT = Number(process.env.PORT) || 3000;
@@ -39,6 +40,8 @@ async function startServer() {
       console.error('Veritabanı başlatılamadı. Uygulama kapatılıyor...');
       process.exit(1);
     }
+
+    await bootstrapLocalData();
 
     const activePort = await findAvailablePort(BASE_PORT);
 

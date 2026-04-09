@@ -1,12 +1,13 @@
 # One Piece Character API (English)
 
-Lightweight REST API that scrapes One Piece character data and stores it in SQLite.
+Lightweight REST API that stores One Piece data in SQLite and keeps it fresh with scheduled scraping.
 
 ## Features
 - Express REST API
 - SQLite local persistence (`data/onepiece.db`)
+- Fast startup with automatic seed bootstrap after local DB deletion
 - Daily background sync with cron
-- Character list, crew list, character detail endpoints
+- Character and crew listing, details, and export endpoints
 - Automatic port fallback (`3000` -> `3001` -> ...)
 
 ## Setup
@@ -24,12 +25,19 @@ DETAIL_BATCH_SIZE=5
 SCRAPER_TIMEOUT_MS=10000
 ```
 
-## Endpoints
-- `GET /api/character`
+## API Endpoints
+### Characters
+- `GET /api/character?limit=50&offset=0&q=luffy`
 - `GET /api/character/:name`
-- `GET /api/crew`
+- `GET /api/character/export/json`
+- `GET /api/character/export/csv`
 
-## Notes
-- If scraping returns `403`, this is usually Cloudflare bot protection from the target site.
-- API still starts and serves existing DB data.
-- If all external sources are blocked (403), the app automatically uses a built-in fallback seed dataset so endpoints still return usable data.
+### Crews
+- `GET /api/crew?limit=50&offset=0&q=straw`
+- `GET /api/crew/export/json`
+- `GET /api/crew/export/csv`
+
+## Reliability Notes
+- If scraping returns `403`, the app tries multiple sources automatically.
+- If all external sources fail, the API uses an internal seed dataset so requests still return usable data.
+- If the local SQLite file is deleted, the app re-seeds core data on startup automatically.
