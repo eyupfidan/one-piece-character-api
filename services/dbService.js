@@ -99,6 +99,12 @@ async function query(sql, params = []) {
     }
     throw error;
   }
+
+  const result = await runSql(
+    `PRAGMA foreign_keys = ON; ${boundSql}; SELECT changes() AS changes, last_insert_rowid() AS lastID;`
+  );
+
+  return result[0] || { changes: 0, lastID: null };
 }
 
 module.exports = { query, dbPath, usingNativeSqlite: Boolean(nativeDb) };

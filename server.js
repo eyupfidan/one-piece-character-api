@@ -35,6 +35,25 @@ async function findAvailablePort(startPort, maxTries = 20) {
   throw new Error(`Kullanılabilir port bulunamadı. Başlangıç portu: ${startPort}`);
 }
 
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const tester = net.createServer()
+      .once('error', () => resolve(false))
+      .once('listening', () => tester.close(() => resolve(true)))
+      .listen(port, '0.0.0.0');
+  });
+}
+
+async function findAvailablePort(startPort, maxTries = 20) {
+  for (let offset = 0; offset < maxTries; offset += 1) {
+    const port = startPort + offset;
+    // eslint-disable-next-line no-await-in-loop
+    if (await isPortAvailable(port)) return port;
+  }
+
+  throw new Error(`Kullanılabilir port bulunamadı. Başlangıç portu: ${startPort}`);
+}
+
 async function startServer() {
   try {
     const dbInitialized = await initializeDatabase();
