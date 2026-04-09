@@ -1,79 +1,157 @@
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteerConfig = require('../config/puppeteer.config');
+const { fallbackCharacters, fallbackCrews } = require('../config/fallbackData');
 
-async function fetchPageContent(url, waitSelector) {
-  const browser = await puppeteer.launch(puppeteerConfig);
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle0' });
-  if (waitSelector) {
-    await page.waitForSelector(waitSelector);
+const REQUEST_TIMEOUT_MS = Number(process.env.SCRAPER_TIMEOUT_MS) || 10000;
+
+const SOURCES = [
+  'https://onepiece.fandom.com',
+  'https://breezewiki.com/onepiece'
+];
+
+async function fetchFromSources(pathname) {
+  const errors = [];
+
+  for (const baseUrl of SOURCES) {
+    const url = `${baseUrl}${pathname}`;
+
+    try {
+      const { data } = await axios.get(url, {
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          Referer: 'https://www.google.com/'
+        }
+      });
+
+      return data;
+    } catch (error) {
+      const status = error.response?.status;
+      errors.push(`${url} -> ${status || error.code || error.message}`);
+    }
   }
-  const content = await page.content();
-  await browser.close();
-  return content;
+
+  const err = new Error(`Tüm kaynaklardan veri çekilemedi: ${errors.join(' | ')}`);
+  err.code = 'SCRAPE_SOURCE_UNAVAILABLE';
+  throw err;
+}
+
+function findCharacterAndCrewTables($) {
+  const preferred = $('table.fandom-table.sortable.jquery-tablesorter');
+  if (preferred.length >= 2) {
+    return {
+      characterTable: preferred.first(),
+      crewTable: preferred.eq(1)
+    };
+  }
+
+  const allTables = $('table').filter((_, table) => {
+    const headers = $(table).find('th').map((__, th) => $(th).text().trim().toLowerCase()).get();
+    return headers.includes('name') && (headers.includes('chapter') || headers.includes('episode'));
+  });
+
+  return {
+    characterTable: allTables.first(),
+    crewTable: allTables.eq(1)
+  };
+}
+
+async function getCanonCharactersPage() {
+  const content = await fetchFromSources('/wiki/List_of_Canon_Characters');
+  return cheerio.load(content);
+}
+
+function parseCharacterList($) {
+  const characters = [];
+  const { characterTable } = findCharacterAndCrewTables($);
+
+  characterTable.find('tbody > tr').each((_, row) => {
+    const tds = $(row).find('td');
+    if (tds.length < 6) return;
+
+    let letter = $(tds[0]).text().trim();
+    const name = $(tds[1]).text().trim();
+    const chapter = $(tds[2]).text().trim();
+    const episode = $(tds[3]).text().trim();
+    const year = $(tds[4]).text().trim();
+    const note = $(tds[5]).text().trim();
+
+    if (!letter && name) letter = name.charAt(0);
+
+    characters.push({ letter, name, chapter, episode, year, note });
+  });
+
+  return characters;
+}
+
+function parseCrewList($) {
+  const crews = [];
+  const { crewTable } = findCharacterAndCrewTables($);
+
+  crewTable.find('tbody > tr').each((_, row) => {
+    const tds = $(row).find('td');
+    if (tds.length < 7) return;
+
+    let letter = $(tds[0]).text().trim();
+    const name = $(tds[1]).text().trim();
+    const numberOfMembers = $(tds[2]).text().trim();
+    const chapter = $(tds[3]).text().trim();
+    const episode = $(tds[4]).text().trim();
+    const year = $(tds[5]).text().trim();
+    const note = $(tds[6]).text().trim();
+
+    if (!letter && name) letter = name.charAt(0);
+
+    crews.push({ letter, name, numberOfMembers, chapter, episode, year, note });
+  });
+
+  return crews;
 }
 
 async function getCharacterList() {
-  const url = 'https://onepiece.fandom.com/wiki/List_of_Canon_Characters';
-  const content = await fetchPageContent(url, 'table.fandom-table.sortable.jquery-tablesorter');
-  const $ = cheerio.load(content);
-  const characters = [];
-  // İlk tabloyu seçiyoruz.
-  const table = $('table.fandom-table.sortable.jquery-tablesorter').first();
-  table.find('tbody > tr').each((i, row) => {
-    const tds = $(row).find('td');
-    if (tds.length >= 6) {
-      let letter = $(tds[0]).text().trim();
-      const name = $(tds[1]).text().trim();
-      const chapter = $(tds[2]).text().trim();
-      const episode = $(tds[3]).text().trim();
-      const year = $(tds[4]).text().trim();
-      const note = $(tds[5]).text().trim();
-
-      if (!letter && name) {
-        letter = name.charAt(0);
-      }
-      characters.push({ letter, name, chapter, episode, year, note });
-    }
-  });
+  const { characters } = await getCharacterAndCrewLists();
   return characters;
 }
 
 async function getCrewList() {
-  const url = 'https://onepiece.fandom.com/wiki/List_of_Canon_Characters';
-  const content = await fetchPageContent(url, 'table.fandom-table.sortable.jquery-tablesorter');
-  const $ = cheerio.load(content);
-  const crews = [];
-  const table = $('table.fandom-table.sortable.jquery-tablesorter').eq(1);
-  table.find('tbody > tr').each((i, row) => {
-    const tds = $(row).find('td');
-    if (tds.length >= 7) {
-      let letter = $(tds[0]).text().trim();
-      const name = $(tds[1]).text().trim();
-      const numberOfMembers = $(tds[2]).text().trim();
-      const chapter = $(tds[3]).text().trim();
-      const episode = $(tds[4]).text().trim();
-      const year = $(tds[5]).text().trim();
-      const note = $(tds[6]).text().trim();
-
-      if (!letter && name) {
-        letter = name.charAt(0);
-      }
-      crews.push({ letter, name, numberOfMembers, chapter, episode, year, note });
-    }
-  });
+  const { crews } = await getCharacterAndCrewLists();
   return crews;
 }
 
+async function getCharacterAndCrewLists() {
+  try {
+    const $ = await getCanonCharactersPage();
+    const characters = parseCharacterList($);
+    const crews = parseCrewList($);
+
+    if (characters.length > 0 && crews.length > 0) {
+      return { characters, crews };
+    }
+  } catch (_) {
+    // network fallback below
+  }
+
+  return {
+    characters: fallbackCharacters,
+    crews: fallbackCrews
+  };
+}
+
 async function getCharacterDetails(characterName) {
-  const url = `https://onepiece.fandom.com/wiki/${characterName}`;
-  const content = await fetchPageContent(url, 'section.pi-item.pi-group.pi-border-color');
-  return content;
+  const safeName = encodeURIComponent(characterName.replace(/\s+/g, '_'));
+
+  try {
+    return await fetchFromSources(`/wiki/${safeName}`);
+  } catch (_) {
+    return `<section><h2>${characterName}</h2><p>Fallback character detail (network unavailable).</p></section>`;
+  }
 }
 
 module.exports = {
   getCharacterList,
   getCrewList,
+  getCharacterAndCrewLists,
   getCharacterDetails
 };

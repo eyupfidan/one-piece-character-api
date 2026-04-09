@@ -3,6 +3,7 @@ const scrapingService = require('../services/scrapingService');
 const dbService = require('../services/dbService');
 const cheerio = require('cheerio');
 const extractSectionData = require('../utils/extractSection');
+const { writeCache } = require('../services/cacheService');
 
 const statisticsMapping = {
   jname: 'japaneseName',
@@ -40,15 +41,15 @@ const devilFruitMapping = {
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Karakter detaylarını güncelleme fonksiyonu
-async function updateCharacterDetails(characters, batchSize = 5) {
+async function updateCharacterDetails(characters, batchSize = Number(process.env.DETAIL_BATCH_SIZE) || 5) {
   console.log("Karakter detayları güncelleniyor...");
   
   // Karakterleri batch'lere böl
   for (let i = 0; i < characters.length; i += batchSize) {
     const batch = characters.slice(i, i + batchSize);
     
-    // Her batch için parallel işlem
-    await Promise.all(batch.map(async (char) => {
+    // Her batch için sıralı işlem (SQLite lock riskini azaltır)
+    for (const char of batch) {
       try {
         const content = await scrapingService.getCharacterDetails(char.name);
         const $ = cheerio.load(content);
@@ -66,28 +67,31 @@ async function updateCharacterDetails(characters, batchSize = 5) {
 
         const columns = Object.keys(detailData).join(', ');
         const values = Object.keys(detailData).map(() => '?').join(', ');
-        const updates = Object.keys(detailData)
-          .filter(key => key !== 'name')
-          .map(key => `${key}=?`)
-          .join(', ');
+        const updateKeys = Object.keys(detailData).filter(key => key !== 'name');
+        const updates = updateKeys.map(key => `${key}=?`).join(', ');
 
-        const detailSql = `
+        const detailSql = updates
+          ? `
           INSERT INTO character_details (${columns})
           VALUES (${values})
-          ON DUPLICATE KEY UPDATE ${updates};
+          ON CONFLICT(name) DO UPDATE SET ${updates};
+        `
+          : `
+          INSERT INTO character_details (${columns})
+          VALUES (${values})
+          ON CONFLICT(name) DO NOTHING;
         `;
 
-        const detailParams = [
-          ...Object.values(detailData),
-          ...Object.values(detailData).slice(1)
-        ];
+        const detailParams = updates
+          ? [...Object.values(detailData), ...Object.values(detailData).slice(1)]
+          : [...Object.values(detailData)];
 
         await dbService.query(detailSql, detailParams);
         console.log(`Updated details for character: ${char.name}`);
       } catch (detailError) {
-        console.error(`Error updating details for ${char.name}:`, detailError);
+        console.error(`Error updating details for ${char.name}:`, detailError.message || detailError);
       }
-    }));
+    }
 
     // Her batch sonrası bekle
     await delay(1000);
@@ -98,13 +102,14 @@ async function updateDatabase() {
   try {
     console.log("Starting daily scraping job...");
 
-    // Karakter listesini güncelleme
-    const characters = await scrapingService.getCharacterList();
+    // Tek ağ isteği ile karakter ve mürettebat listelerini al
+    const { characters, crews } = await scrapingService.getCharacterAndCrewLists();
     for (const char of characters) {
       const sql = `
         INSERT INTO characters (letter, name, chapter, episode, year, note)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE letter=?, chapter=?, episode=?, year=?, note=?;
+        ON CONFLICT(name) DO UPDATE SET
+          letter=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
       `;
       const params = [
         char.letter, char.name, char.chapter, char.episode, char.year, char.note,
@@ -115,12 +120,12 @@ async function updateDatabase() {
     console.log("Character list updated.");
 
     // Mürettebat listesini güncelleme
-    const crews = await scrapingService.getCrewList();
     for (const crew of crews) {
       const sql = `
         INSERT INTO crews (letter, name, numberOfMembers, chapter, episode, year, note)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE letter=?, numberOfMembers=?, chapter=?, episode=?, year=?, note=?;
+        ON CONFLICT(name) DO UPDATE SET
+          letter=?, numberOfMembers=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
       `;
       const params = [
         crew.letter, crew.name, crew.numberOfMembers, crew.chapter, crew.episode, crew.year, crew.note,
@@ -130,6 +135,8 @@ async function updateDatabase() {
     }
     console.log("Crew list updated.");
 
+    await writeCache({ characters, crews });
+
     // Karakter detaylarını arka planda güncelle
     updateCharacterDetails(characters).catch(error => {
       console.error('Karakter detayları güncelleme hatası:', error);
@@ -137,7 +144,7 @@ async function updateDatabase() {
 
     console.log("Daily scraping job completed.");
   } catch (err) {
-    console.error("Error in daily scraping job:", err);
+    console.error("Error in daily scraping job:", err.message || err);
   }
 }
 

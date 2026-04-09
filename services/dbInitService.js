@@ -5,25 +5,31 @@ const path = require('path');
 async function initializeDatabase() {
   try {
     console.log('Veritabanı tabloları kontrol ediliyor...');
-    
-    // SQL dosyasını oku
+
     const sqlFile = await fs.readFile(
       path.join(__dirname, '../config/database.sql'),
       'utf8'
     );
 
-    // SQL komutlarını ayır ve çalıştır
     const sqlCommands = sqlFile
       .split(';')
       .filter(cmd => cmd.trim())
       .map(cmd => cmd.trim() + ';');
 
+    let hasError = false;
+
     for (const sql of sqlCommands) {
       try {
         await dbService.query(sql);
       } catch (err) {
-        console.error('SQL çalıştırma hatası:', err);
+        hasError = true;
+        console.error('SQL çalıştırma hatası:', err.message || err);
       }
+    }
+
+    if (hasError) {
+      console.error('Veritabanı başlatma başarısız: SQL komutlarının en az biri çalıştırılamadı.');
+      return false;
     }
 
     console.log('Veritabanı tabloları başarıyla oluşturuldu/güncellendi.');
@@ -34,4 +40,4 @@ async function initializeDatabase() {
   }
 }
 
-module.exports = { initializeDatabase }; 
+module.exports = { initializeDatabase };
