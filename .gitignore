@@ -1,3 +1,15 @@
 node_modules/
 .env
 .DS_Store
+
+# Local SQLite artifacts (binary)
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+
+# TypeScript build output
+dist/
+*.tsbuildinfo

@@ -1,37 +1,24 @@
-# Node.js base image
-FROM node:23-slim
+FROM node:22-slim AS build
 
-# Install dependencies for Puppeteer
-RUN apt-get update \
-    && apt-get install -y \
-    chromium \
-    fonts-ipafont-gothic \
-    fonts-wqy-zenhei \
-    fonts-thai-tlwg \
-    fonts-kacst \
-    fonts-freefont-ttf \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set environment variable for Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    PORT=8000
-
-# Create app directory
 WORKDIR /usr/src/app
-
-# Copy package files
 COPY package*.json ./
-
-# Install app dependencies
-RUN npm install
-
-# Bundle app source
+RUN npm ci
 COPY . .
+RUN npm run build
 
-# Expose port
+FROM node:22-slim AS runtime
+ENV NODE_ENV=production \
+    PORT=8000 \
+    SQLITE_PATH=/usr/src/app/data/onepiece.db
+
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /usr/src/app/dist ./dist
+COPY --from=build /usr/src/app/config ./config
+COPY --from=build /usr/src/app/README.en.md ./README.en.md
+COPY --from=build /usr/src/app/README.tr.md ./README.tr.md
+RUN mkdir -p /usr/src/app/data
+
 EXPOSE 8000
-
-# Start command
-CMD ["node", "server.js"] 
+CMD ["node", "dist/server.js"]
