@@ -1,12 +1,9 @@
-const dbService = require('./dbService');
-const { readCache } = require('./cacheService');
-const {
-  fallbackCharacters,
-  fallbackCrews,
-  fallbackCharacterDetails
-} = require('../config/fallbackData');
+import { fallbackCharacterDetails, fallbackCharacters, fallbackCrews } from '../config/fallbackData';
+import type { CachePayload, Character, CharacterDetail, Crew } from '../types/domain';
+import { readCache } from './cacheService';
+import { query } from './dbService';
 
-function normalizeSeedData(cache) {
+function normalizeSeedData(cache: CachePayload | null): { characters: Character[]; crews: Crew[]; details: CharacterDetail[] } {
   return {
     characters: Array.isArray(cache?.characters) && cache.characters.length ? cache.characters : fallbackCharacters,
     crews: Array.isArray(cache?.crews) && cache.crews.length ? cache.crews : fallbackCrews,
@@ -14,13 +11,14 @@ function normalizeSeedData(cache) {
   };
 }
 
-async function seedCharactersIfEmpty(characters) {
-  const rows = await dbService.query('SELECT COUNT(*) as total FROM characters');
+async function seedCharactersIfEmpty(characters: Character[]): Promise<void> {
+  const rows = await query('SELECT COUNT(*) as total FROM characters');
   const total = Number(rows?.[0]?.total || 0);
   if (total > 0) return;
 
   for (const char of characters) {
-    await dbService.query(
+    // eslint-disable-next-line no-await-in-loop
+    await query(
       `INSERT INTO characters (letter, name, chapter, episode, year, note)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET letter=excluded.letter, chapter=excluded.chapter, episode=excluded.episode, year=excluded.year, note=excluded.note, updated_at=CURRENT_TIMESTAMP`,
@@ -29,13 +27,14 @@ async function seedCharactersIfEmpty(characters) {
   }
 }
 
-async function seedCrewsIfEmpty(crews) {
-  const rows = await dbService.query('SELECT COUNT(*) as total FROM crews');
+async function seedCrewsIfEmpty(crews: Crew[]): Promise<void> {
+  const rows = await query('SELECT COUNT(*) as total FROM crews');
   const total = Number(rows?.[0]?.total || 0);
   if (total > 0) return;
 
   for (const crew of crews) {
-    await dbService.query(
+    // eslint-disable-next-line no-await-in-loop
+    await query(
       `INSERT INTO crews (letter, name, numberOfMembers, chapter, episode, year, note)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET letter=excluded.letter, numberOfMembers=excluded.numberOfMembers, chapter=excluded.chapter, episode=excluded.episode, year=excluded.year, note=excluded.note, updated_at=CURRENT_TIMESTAMP`,
@@ -44,8 +43,8 @@ async function seedCrewsIfEmpty(crews) {
   }
 }
 
-async function seedCharacterDetailsIfEmpty(details) {
-  const rows = await dbService.query('SELECT COUNT(*) as total FROM character_details');
+async function seedCharacterDetailsIfEmpty(details: CharacterDetail[]): Promise<void> {
+  const rows = await query('SELECT COUNT(*) as total FROM character_details');
   const total = Number(rows?.[0]?.total || 0);
   if (total > 0) return;
 
@@ -61,11 +60,12 @@ async function seedCharacterDetailsIfEmpty(details) {
       ? `INSERT INTO character_details (${columns}) VALUES (${placeholders}) ON CONFLICT(name) DO UPDATE SET ${updates}`
       : `INSERT INTO character_details (${columns}) VALUES (${placeholders}) ON CONFLICT(name) DO NOTHING`;
 
-    await dbService.query(sql, Object.values(detail));
+    // eslint-disable-next-line no-await-in-loop
+    await query(sql, Object.values(detail));
   }
 }
 
-async function bootstrapLocalData() {
+export async function bootstrapLocalData(): Promise<void> {
   const cache = await readCache();
   const seed = normalizeSeedData(cache);
 
@@ -73,7 +73,3 @@ async function bootstrapLocalData() {
   await seedCrewsIfEmpty(seed.crews);
   await seedCharacterDetailsIfEmpty(seed.details);
 }
-
-module.exports = {
-  bootstrapLocalData
-};

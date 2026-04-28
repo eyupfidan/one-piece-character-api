@@ -1,19 +1,42 @@
-# One Piece Character API (Türkçe)
+# One Piece Character API (TypeScript)
 
-Yüksek erişilebilirlik için tasarlanmış; SQLite kalıcılığı, dayanıklı veri toplama, zengin dışa aktarma ve hızlı başlangıç bootstrap özelliklerine sahip One Piece API.
+**TypeScript + Express + SQLite** ile hazırlanmış yüksek erişilebilirlik odaklı One Piece API.
 
-## Öne Çıkanlar
-- DB silinse bile başlangıçta otomatik bootstrap ile hızlı veri hazırlama
-- Çoklu kaynak scraping + otomatik seed fallback
-- Sayfalama/arama destekli endpointler
-- Zengin JSON + CSV dışa aktarma
-- Tüm veriyi tek noktadan dışa aktaran endpoint
-- Otomatik port fallback (`3000` → `3001` → ...)
+## Projenin sağladıkları
+- SQLite tabanlı yerel kalıcılık (MariaDB zorunlu değil)
+- TypeScript kod tabanı ve modüler dosya yapısı
+- Yerel DB silinse/boşalsa otomatik bootstrap
+- Dayanıklı veri toplama: çoklu kaynak + cache + fallback seed
+- Zengin API: sayfalama, arama, istatistik, CSV/JSON export, tam export
+- Otomatik port fallback (`PORT`, sonra `PORT+1`, ...)
 
-## Kurulum
-```bash
-npm install
-npm start
+## Proje Yapısı
+
+```txt
+src/
+  config/
+    fallbackData.ts
+  controllers/
+    characterController.ts
+    crewController.ts
+    exportController.ts
+  routes/
+    characterRoutes.ts
+    crewRoutes.ts
+    exportRoutes.ts
+  scheduler/
+    dailyScraper.ts
+  services/
+    bootstrapService.ts
+    cacheService.ts
+    dbInitService.ts
+    dbService.ts
+    scrapingService.ts
+  types/
+    domain.ts
+  utils/
+    extractSection.ts
+  server.ts
 ```
 
 ## Ortam Değişkenleri
@@ -23,6 +46,18 @@ SQLITE_PATH=./data/onepiece.db
 CRON_SCHEDULE=0 0 * * *
 DETAIL_BATCH_SIZE=5
 SCRAPER_TIMEOUT_MS=10000
+```
+
+## Local Geliştirme
+```bash
+npm install
+npm run dev
+```
+
+## Build ve Çalıştırma
+```bash
+npm run build
+npm run start:prod
 ```
 
 ## API Endpointleri
@@ -39,14 +74,21 @@ SCRAPER_TIMEOUT_MS=10000
 - `GET /api/crew/export/json`
 - `GET /api/crew/export/csv`
 
-### Genel Dışa Aktarma
+### Tam Export
 - `GET /api/export/full/json`
 
-## Güvenilirlik ve Performans
-- Dış kaynaklar `403` döndürürse sistem alternatif kaynakları dener.
-- Tüm kaynaklar başarısız olursa API, dahili seed verisiyle yanıt üretmeye devam eder.
-- `data/onepiece.db` silinirse başlangıçta çekirdek veri otomatik ve hızlı şekilde yeniden yazılır.
+## Veri Akışı Dokümantasyonu
+1. `dbInitService` SQLite şemasını oluşturur/doğrular.
+2. `bootstrapService`, DB boşsa önce cache’den, sonra fallback seed’den veri yazar.
+3. API hızlıca ayağa kalkar ve anında yanıt verir.
+4. `dailyScraper` arka planda çalışır:
+   - canlı kaynakları dener,
+   - karakter/mürettebat/detay verisini upsert eder,
+   - başarılı liste verisini cache’e yazar.
+5. Kaynaklar `403` veya ağ hatası verirse API cache/seed ile çalışmaya devam eder.
 
-## Çakışma Azaltma
-- `.gitattributes` ile `package-lock.json` için merge çatışmaları azaltıldı (`merge=union`).
-- Eski `README.md`, tekrar eden binary-diff PR sorunlarını önlemek için merge/diff dışına alındı.
+## Docker
+```bash
+docker build -t one-piece-character-api .
+docker run -p 8000:8000 -v $(pwd)/data:/usr/src/app/data one-piece-character-api
+```

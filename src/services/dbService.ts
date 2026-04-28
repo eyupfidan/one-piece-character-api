@@ -1,35 +1,38 @@
-const fs = require('fs');
-const path = require('path');
-const { execFile } = require('child_process');
-const { promisify } = require('util');
-require('dotenv').config();
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const execFileAsync = promisify(execFile);
-const dbPath = process.env.SQLITE_PATH || path.join(__dirname, '../data/onepiece.db');
+export const dbPath = process.env.SQLITE_PATH || path.join(__dirname, '../../data/onepiece.db');
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-let sqliteNative = null;
+let sqliteNative: { DatabaseSync: new (file: string) => any } | null = null;
 try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   sqliteNative = require('node:sqlite');
-} catch (_) {
+} catch {
   sqliteNative = null;
 }
 
-let nativeDb = null;
+let nativeDb: any = null;
 if (sqliteNative?.DatabaseSync) {
   nativeDb = new sqliteNative.DatabaseSync(dbPath);
   nativeDb.exec('PRAGMA foreign_keys = ON;');
   nativeDb.exec('PRAGMA journal_mode = WAL;');
 }
 
-function toSqlLiteral(value) {
+function toSqlLiteral(value: unknown): string {
   if (value === null || value === undefined) return 'NULL';
   if (typeof value === 'number') return String(value);
   if (typeof value === 'boolean') return value ? '1' : '0';
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function bindParams(sql, params = []) {
+function bindParams(sql: string, params: unknown[] = []): string {
   let index = 0;
   return sql.replace(/\?/g, () => {
     if (index >= params.length) throw new Error('SQL parametre sayısı yetersiz.');
@@ -37,12 +40,12 @@ function bindParams(sql, params = []) {
   });
 }
 
-async function runSqlWithCli(sql) {
+async function runSqlWithCli(sql: string): Promise<any[]> {
   const { stdout } = await execFileAsync('sqlite3', ['-json', dbPath, sql]);
-  return stdout.trim() ? JSON.parse(stdout) : [];
+  return stdout.trim() ? (JSON.parse(stdout) as any[]) : [];
 }
 
-function runSqlWithNative(sql, params = []) {
+function runSqlWithNative(sql: string, params: unknown[] = []): any {
   const normalized = sql.trim().toUpperCase();
   const stmt = nativeDb.prepare(sql);
 
@@ -54,14 +57,14 @@ function runSqlWithNative(sql, params = []) {
   return { changes: result.changes, lastID: result.lastInsertRowid };
 }
 
-
-async function runSqlWithRetry(sql, attempts = 4) {
-  let lastError;
+async function runSqlWithRetry(sql: string, attempts = 4): Promise<any[]> {
+  let lastError: any;
 
   for (let i = 0; i < attempts; i += 1) {
     try {
+      // eslint-disable-next-line no-await-in-loop
       return await runSqlWithCli(sql);
-    } catch (error) {
+    } catch (error: any) {
       lastError = error;
       const locked = error.code === 5 || /database is locked/i.test(error.stderr || error.message || '');
       if (!locked || i === attempts - 1) break;
@@ -73,10 +76,8 @@ async function runSqlWithRetry(sql, attempts = 4) {
   throw lastError;
 }
 
-async function query(sql, params = []) {
-  if (nativeDb) {
-    return runSqlWithNative(sql, params);
-  }
+export async function query(sql: string, params: unknown[] = []): Promise<any> {
+  if (nativeDb) return runSqlWithNative(sql, params);
 
   const boundSql = bindParams(sql, params);
   const normalized = boundSql.trim().toUpperCase();
@@ -91,20 +92,12 @@ async function query(sql, params = []) {
     );
 
     return result[0] || { changes: 0, lastID: null };
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 'ENOENT') {
-      throw new Error(
-        'SQLite backend bulunamadı. Node.js 24+ (node:sqlite) kullanın veya sqlite3 CLI kurup PATH\'e ekleyin.'
-      );
+      throw new Error('SQLite backend bulunamadı. Node.js 24+ (node:sqlite) kullanın veya sqlite3 CLI kurup PATH\'e ekleyin.');
     }
     throw error;
   }
-
-  const result = await runSql(
-    `PRAGMA foreign_keys = ON; ${boundSql}; SELECT changes() AS changes, last_insert_rowid() AS lastID;`
-  );
-
-  return result[0] || { changes: 0, lastID: null };
 }
 
-module.exports = { query, dbPath, usingNativeSqlite: Boolean(nativeDb) };
+export const usingNativeSqlite = Boolean(nativeDb);

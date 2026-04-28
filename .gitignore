@@ -9,3 +9,7 @@ data/
 *.sqlite
 *.sqlite-*
 *.sqlite3
+
+# TypeScript build output
+dist/
+*.tsbuildinfo

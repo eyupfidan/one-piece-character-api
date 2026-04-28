@@ -1,16 +1,17 @@
-const dbService = require('../services/dbService');
+import type { Request, Response } from 'express';
+import { query } from '../services/dbService';
 
-function parsePagination(query) {
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
-  const offset = Math.max(Number(query.offset) || 0, 0);
-  const search = (query.q || '').trim();
+function parsePagination(queryParams: Request['query']) {
+  const limit = Math.min(Math.max(Number(queryParams.limit) || 50, 1), 200);
+  const offset = Math.max(Number(queryParams.offset) || 0, 0);
+  const search = String(queryParams.q || '').trim();
   return { limit, offset, search };
 }
 
-function toCsv(rows) {
+function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows.length) return '';
   const headers = Object.keys(rows[0]);
-  const escapeCell = (value) => {
+  const escapeCell = (value: unknown) => {
     if (value === null || value === undefined) return '';
     const str = String(value).replace(/"/g, '""');
     return /[",\n]/.test(str) ? `"${str}"` : str;
@@ -23,7 +24,7 @@ function toCsv(rows) {
   return lines.join('\n');
 }
 
-async function listCrews(req, res) {
+export async function listCrews(req: Request, res: Response): Promise<void> {
   try {
     const { limit, offset, search } = parsePagination(req.query);
 
@@ -42,8 +43,8 @@ async function listCrews(req, res) {
     const countParams = search ? [`%${search}%`] : [];
 
     const [crews, countRows] = await Promise.all([
-      dbService.query(sql, params),
-      dbService.query(countSql, countParams)
+      query(sql, params),
+      query(countSql, countParams)
     ]);
 
     res.json({
@@ -61,9 +62,9 @@ async function listCrews(req, res) {
   }
 }
 
-async function exportCrewsJson(req, res) {
+export async function exportCrewsJson(_req: Request, res: Response): Promise<void> {
   try {
-    const rows = await dbService.query('SELECT * FROM crews ORDER BY name');
+    const rows = await query('SELECT * FROM crews ORDER BY name');
     res.json({ exportedAt: new Date().toISOString(), total: rows.length, data: rows });
   } catch (error) {
     console.error('Crew export JSON error:', error);
@@ -71,9 +72,9 @@ async function exportCrewsJson(req, res) {
   }
 }
 
-async function exportCrewsCsv(req, res) {
+export async function exportCrewsCsv(_req: Request, res: Response): Promise<void> {
   try {
-    const rows = await dbService.query('SELECT * FROM crews ORDER BY name');
+    const rows = await query('SELECT * FROM crews ORDER BY name');
     const csv = toCsv(rows);
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -85,12 +86,11 @@ async function exportCrewsCsv(req, res) {
   }
 }
 
-
-async function crewStats(req, res) {
+export async function crewStats(_req: Request, res: Response): Promise<void> {
   try {
     const [countRows, letterRows] = await Promise.all([
-      dbService.query('SELECT COUNT(*) as total FROM crews'),
-      dbService.query('SELECT letter, COUNT(*) as total FROM crews GROUP BY letter ORDER BY total DESC LIMIT 10')
+      query('SELECT COUNT(*) as total FROM crews'),
+      query('SELECT letter, COUNT(*) as total FROM crews GROUP BY letter ORDER BY total DESC LIMIT 10')
     ]);
 
     res.json({
@@ -102,10 +102,3 @@ async function crewStats(req, res) {
     res.status(500).json({ error: 'Mürettebat istatistikleri alınamadı' });
   }
 }
-
-module.exports = {
-  listCrews,
-  exportCrewsJson,
-  exportCrewsCsv,
-  crewStats
-};

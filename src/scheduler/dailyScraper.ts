@@ -1,11 +1,12 @@
-const cron = require('node-cron');
-const scrapingService = require('../services/scrapingService');
-const dbService = require('../services/dbService');
-const cheerio = require('cheerio');
-const extractSectionData = require('../utils/extractSection');
-const { writeCache } = require('../services/cacheService');
+import cron from 'node-cron';
+import * as cheerio from 'cheerio';
+import * as scrapingService from '../services/scrapingService';
+import { writeCache } from '../services/cacheService';
+import { query } from '../services/dbService';
+import extractSectionData from '../utils/extractSection';
+import type { Character } from '../types/domain';
 
-const statisticsMapping = {
+const statisticsMapping: Record<string, string> = {
   jname: 'japaneseName',
   rname: 'romanizedName',
   ename: 'officialEnglishName',
@@ -20,35 +21,31 @@ const statisticsMapping = {
   age: 'age',
   birth: 'birthday',
   height: 'height',
-  "blood type": 'bloodType',
+  'blood type': 'bloodType',
   bounty: 'bounty'
 };
 
-const portrayalMapping = {
+const portrayalMapping: Record<string, string> = {
   jva: 'japaneseVoice',
   eva: 'englishVoice',
   liveaction: 'liveActionPortrayal'
 };
 
-const devilFruitMapping = {
+const devilFruitMapping: Record<string, string> = {
   dfname: 'devilFruitJapaneseName',
   dfename: 'devilFruitEnglishName',
   dfmeaning: 'devilFruitMeaning',
   dftype: 'devilFruitType'
 };
 
-// Rate limiting için yardımcı fonksiyon
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Karakter detaylarını güncelleme fonksiyonu
-async function updateCharacterDetails(characters, batchSize = Number(process.env.DETAIL_BATCH_SIZE) || 5) {
-  console.log("Karakter detayları güncelleniyor...");
-  
-  // Karakterleri batch'lere böl
+async function updateCharacterDetails(characters: Character[], batchSize = Number(process.env.DETAIL_BATCH_SIZE) || 5): Promise<void> {
+  console.log('Karakter detayları güncelleniyor...');
+
   for (let i = 0; i < characters.length; i += batchSize) {
     const batch = characters.slice(i, i + batchSize);
-    
-    // Her batch için sıralı işlem (SQLite lock riskini azaltır)
+
     for (const char of batch) {
       try {
         const content = await scrapingService.getCharacterDetails(char.name);
@@ -63,7 +60,7 @@ async function updateCharacterDetails(characters, batchSize = Number(process.env
           ...statisticsData,
           ...portrayalData,
           ...devilFruitData
-        };
+        } as Record<string, string>;
 
         const columns = Object.keys(detailData).join(', ');
         const values = Object.keys(detailData).map(() => '?').join(', ');
@@ -71,86 +68,73 @@ async function updateCharacterDetails(characters, batchSize = Number(process.env
         const updates = updateKeys.map(key => `${key}=?`).join(', ');
 
         const detailSql = updates
-          ? `
-          INSERT INTO character_details (${columns})
-          VALUES (${values})
-          ON CONFLICT(name) DO UPDATE SET ${updates};
-        `
-          : `
-          INSERT INTO character_details (${columns})
-          VALUES (${values})
-          ON CONFLICT(name) DO NOTHING;
-        `;
+          ? `INSERT INTO character_details (${columns}) VALUES (${values}) ON CONFLICT(name) DO UPDATE SET ${updates};`
+          : `INSERT INTO character_details (${columns}) VALUES (${values}) ON CONFLICT(name) DO NOTHING;`;
 
         const detailParams = updates
           ? [...Object.values(detailData), ...Object.values(detailData).slice(1)]
           : [...Object.values(detailData)];
 
-        await dbService.query(detailSql, detailParams);
+        await query(detailSql, detailParams);
         console.log(`Updated details for character: ${char.name}`);
-      } catch (detailError) {
+      } catch (detailError: any) {
         console.error(`Error updating details for ${char.name}:`, detailError.message || detailError);
       }
     }
 
-    // Her batch sonrası bekle
     await delay(1000);
   }
 }
 
-async function updateDatabase() {
+export async function updateDatabase(): Promise<void> {
   try {
-    console.log("Starting daily scraping job...");
+    console.log('Starting daily scraping job...');
 
-    // Tek ağ isteği ile karakter ve mürettebat listelerini al
     const { characters, crews } = await scrapingService.getCharacterAndCrewLists();
     for (const char of characters) {
       const sql = `
         INSERT INTO characters (letter, name, chapter, episode, year, note)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(name) DO UPDATE SET
-          letter=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
+        ON CONFLICT(name) DO UPDATE SET letter=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
       `;
       const params = [
         char.letter, char.name, char.chapter, char.episode, char.year, char.note,
-        char.letter, char.chapter, char.episode, char.year, char.note,
+        char.letter, char.chapter, char.episode, char.year, char.note
       ];
-      await dbService.query(sql, params);
+      // eslint-disable-next-line no-await-in-loop
+      await query(sql, params);
     }
-    console.log("Character list updated.");
+    console.log('Character list updated.');
 
-    // Mürettebat listesini güncelleme
     for (const crew of crews) {
       const sql = `
         INSERT INTO crews (letter, name, numberOfMembers, chapter, episode, year, note)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(name) DO UPDATE SET
-          letter=?, numberOfMembers=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
+        ON CONFLICT(name) DO UPDATE SET letter=?, numberOfMembers=?, chapter=?, episode=?, year=?, note=?, updated_at=CURRENT_TIMESTAMP;
       `;
       const params = [
         crew.letter, crew.name, crew.numberOfMembers, crew.chapter, crew.episode, crew.year, crew.note,
-        crew.letter, crew.numberOfMembers, crew.chapter, crew.episode, crew.year, crew.note,
+        crew.letter, crew.numberOfMembers, crew.chapter, crew.episode, crew.year, crew.note
       ];
-      await dbService.query(sql, params);
+      // eslint-disable-next-line no-await-in-loop
+      await query(sql, params);
     }
-    console.log("Crew list updated.");
+    console.log('Crew list updated.');
 
     await writeCache({ characters, crews });
 
-    // Karakter detaylarını arka planda güncelle
     updateCharacterDetails(characters).catch(error => {
       console.error('Karakter detayları güncelleme hatası:', error);
     });
 
-    console.log("Daily scraping job completed.");
-  } catch (err) {
-    console.error("Error in daily scraping job:", err.message || err);
+    console.log('Daily scraping job completed.');
+  } catch (err: any) {
+    console.error('Error in daily scraping job:', err.message || err);
   }
 }
 
-// Her gün gece yarısı çalıştır
 cron.schedule(process.env.CRON_SCHEDULE || '0 0 * * *', () => {
-  updateDatabase();
+  void updateDatabase();
 });
 
-module.exports = updateDatabase;
+export default updateDatabase;

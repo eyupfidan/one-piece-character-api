@@ -1,16 +1,17 @@
-const dbService = require('../services/dbService');
+import type { Request, Response } from 'express';
+import { query } from '../services/dbService';
 
-function parsePagination(query) {
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
-  const offset = Math.max(Number(query.offset) || 0, 0);
-  const search = (query.q || '').trim();
+function parsePagination(queryParams: Request['query']) {
+  const limit = Math.min(Math.max(Number(queryParams.limit) || 50, 1), 200);
+  const offset = Math.max(Number(queryParams.offset) || 0, 0);
+  const search = String(queryParams.q || '').trim();
   return { limit, offset, search };
 }
 
-function toCsv(rows) {
+function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows.length) return '';
   const headers = Object.keys(rows[0]);
-  const escapeCell = (value) => {
+  const escapeCell = (value: unknown) => {
     if (value === null || value === undefined) return '';
     const str = String(value).replace(/"/g, '""');
     return /[",\n]/.test(str) ? `"${str}"` : str;
@@ -23,7 +24,7 @@ function toCsv(rows) {
   return lines.join('\n');
 }
 
-async function listCharacters(req, res) {
+export async function listCharacters(req: Request, res: Response): Promise<void> {
   try {
     const { limit, offset, search } = parsePagination(req.query);
     const includeDetails = req.query.includeDetails === 'true';
@@ -52,8 +53,8 @@ async function listCharacters(req, res) {
     const countParams = search ? [`%${search}%`] : [];
 
     const [characters, countRows] = await Promise.all([
-      dbService.query(sql, params),
-      dbService.query(countSql, countParams)
+      query(sql, params),
+      query(countSql, countParams)
     ]);
 
     res.json({
@@ -72,9 +73,9 @@ async function listCharacters(req, res) {
   }
 }
 
-async function exportCharactersJson(req, res) {
+export async function exportCharactersJson(_req: Request, res: Response): Promise<void> {
   try {
-    const rows = await dbService.query('SELECT * FROM characters ORDER BY name');
+    const rows = await query('SELECT * FROM characters ORDER BY name');
     res.json({ exportedAt: new Date().toISOString(), total: rows.length, data: rows });
   } catch (error) {
     console.error('Character export JSON error:', error);
@@ -82,9 +83,9 @@ async function exportCharactersJson(req, res) {
   }
 }
 
-async function exportCharactersCsv(req, res) {
+export async function exportCharactersCsv(_req: Request, res: Response): Promise<void> {
   try {
-    const rows = await dbService.query('SELECT * FROM characters ORDER BY name');
+    const rows = await query('SELECT * FROM characters ORDER BY name');
     const csv = toCsv(rows);
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -96,11 +97,10 @@ async function exportCharactersCsv(req, res) {
   }
 }
 
-async function getCharacterDetail(req, res) {
+export async function getCharacterDetail(req: Request, res: Response): Promise<void> {
   try {
     const characterName = req.params.name;
-    const sql = 'SELECT * FROM character_details WHERE name = ?';
-    const characterDetails = await dbService.query(sql, [characterName]);
+    const characterDetails = await query('SELECT * FROM character_details WHERE name = ?', [characterName]);
 
     if (characterDetails && characterDetails.length > 0) {
       res.json(characterDetails[0]);
@@ -114,13 +114,12 @@ async function getCharacterDetail(req, res) {
   }
 }
 
-
-async function characterStats(req, res) {
+export async function characterStats(_req: Request, res: Response): Promise<void> {
   try {
     const [countRows, letterRows, yearRows] = await Promise.all([
-      dbService.query('SELECT COUNT(*) as total FROM characters'),
-      dbService.query('SELECT letter, COUNT(*) as total FROM characters GROUP BY letter ORDER BY total DESC LIMIT 10'),
-      dbService.query('SELECT year, COUNT(*) as total FROM characters WHERE year IS NOT NULL AND year != "" GROUP BY year ORDER BY year')
+      query('SELECT COUNT(*) as total FROM characters'),
+      query('SELECT letter, COUNT(*) as total FROM characters GROUP BY letter ORDER BY total DESC LIMIT 10'),
+      query('SELECT year, COUNT(*) as total FROM characters WHERE year IS NOT NULL AND year != "" GROUP BY year ORDER BY year')
     ]);
 
     res.json({
@@ -133,11 +132,3 @@ async function characterStats(req, res) {
     res.status(500).json({ error: 'Karakter istatistikleri alınamadı' });
   }
 }
-
-module.exports = {
-  listCharacters,
-  exportCharactersJson,
-  exportCharactersCsv,
-  characterStats,
-  getCharacterDetail
-};

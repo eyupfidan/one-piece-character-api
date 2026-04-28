@@ -1,6 +1,7 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { fallbackCharacters, fallbackCrews } = require('../config/fallbackData');
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import { fallbackCharacters, fallbackCrews } from '../config/fallbackData';
+import type { Character, Crew } from '../types/domain';
 
 const REQUEST_TIMEOUT_MS = Number(process.env.SCRAPER_TIMEOUT_MS) || 10000;
 
@@ -9,14 +10,14 @@ const SOURCES = [
   'https://breezewiki.com/onepiece'
 ];
 
-async function fetchFromSources(pathname) {
-  const errors = [];
+async function fetchFromSources(pathname: string): Promise<string> {
+  const errors: string[] = [];
 
   for (const baseUrl of SOURCES) {
     const url = `${baseUrl}${pathname}`;
 
     try {
-      const { data } = await axios.get(url, {
+      const { data } = await axios.get<string>(url, {
         timeout: REQUEST_TIMEOUT_MS,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
@@ -27,18 +28,18 @@ async function fetchFromSources(pathname) {
       });
 
       return data;
-    } catch (error) {
+    } catch (error: any) {
       const status = error.response?.status;
       errors.push(`${url} -> ${status || error.code || error.message}`);
     }
   }
 
-  const err = new Error(`Tüm kaynaklardan veri çekilemedi: ${errors.join(' | ')}`);
+  const err = new Error(`Tüm kaynaklardan veri çekilemedi: ${errors.join(' | ')}`) as Error & { code?: string };
   err.code = 'SCRAPE_SOURCE_UNAVAILABLE';
   throw err;
 }
 
-function findCharacterAndCrewTables($) {
+function findCharacterAndCrewTables($: cheerio.CheerioAPI): { characterTable: cheerio.Cheerio<any>; crewTable: cheerio.Cheerio<any> } {
   const preferred = $('table.fandom-table.sortable.jquery-tablesorter');
   if (preferred.length >= 2) {
     return {
@@ -58,13 +59,13 @@ function findCharacterAndCrewTables($) {
   };
 }
 
-async function getCanonCharactersPage() {
+async function getCanonCharactersPage(): Promise<cheerio.CheerioAPI> {
   const content = await fetchFromSources('/wiki/List_of_Canon_Characters');
   return cheerio.load(content);
 }
 
-function parseCharacterList($) {
-  const characters = [];
+function parseCharacterList($: cheerio.CheerioAPI): Character[] {
+  const characters: Character[] = [];
   const { characterTable } = findCharacterAndCrewTables($);
 
   characterTable.find('tbody > tr').each((_, row) => {
@@ -86,8 +87,8 @@ function parseCharacterList($) {
   return characters;
 }
 
-function parseCrewList($) {
-  const crews = [];
+function parseCrewList($: cheerio.CheerioAPI): Crew[] {
+  const crews: Crew[] = [];
   const { crewTable } = findCharacterAndCrewTables($);
 
   crewTable.find('tbody > tr').each((_, row) => {
@@ -110,17 +111,7 @@ function parseCrewList($) {
   return crews;
 }
 
-async function getCharacterList() {
-  const { characters } = await getCharacterAndCrewLists();
-  return characters;
-}
-
-async function getCrewList() {
-  const { crews } = await getCharacterAndCrewLists();
-  return crews;
-}
-
-async function getCharacterAndCrewLists() {
+export async function getCharacterAndCrewLists(): Promise<{ characters: Character[]; crews: Crew[] }> {
   try {
     const $ = await getCanonCharactersPage();
     const characters = parseCharacterList($);
@@ -129,8 +120,8 @@ async function getCharacterAndCrewLists() {
     if (characters.length > 0 && crews.length > 0) {
       return { characters, crews };
     }
-  } catch (_) {
-    // network fallback below
+  } catch {
+    // fallback below
   }
 
   return {
@@ -139,19 +130,22 @@ async function getCharacterAndCrewLists() {
   };
 }
 
-async function getCharacterDetails(characterName) {
+export async function getCharacterList(): Promise<Character[]> {
+  const { characters } = await getCharacterAndCrewLists();
+  return characters;
+}
+
+export async function getCrewList(): Promise<Crew[]> {
+  const { crews } = await getCharacterAndCrewLists();
+  return crews;
+}
+
+export async function getCharacterDetails(characterName: string): Promise<string> {
   const safeName = encodeURIComponent(characterName.replace(/\s+/g, '_'));
 
   try {
     return await fetchFromSources(`/wiki/${safeName}`);
-  } catch (_) {
+  } catch {
     return `<section><h2>${characterName}</h2><p>Fallback character detail (network unavailable).</p></section>`;
   }
 }
-
-module.exports = {
-  getCharacterList,
-  getCrewList,
-  getCharacterAndCrewLists,
-  getCharacterDetails
-};
