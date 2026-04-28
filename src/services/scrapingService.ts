@@ -4,11 +4,75 @@ import { fallbackCharacters, fallbackCrews } from '../config/fallbackData';
 import type { Character, Crew } from '../types/domain';
 
 const REQUEST_TIMEOUT_MS = Number(process.env.SCRAPER_TIMEOUT_MS) || 10000;
+const FANDOM_API_URL = 'https://onepiece.fandom.com/api.php';
 
 const SOURCES = [
-  'https://onepiece.fandom.com',
-  'https://breezewiki.com/onepiece'
+  'https://onepiece.fandom.com'
 ];
+
+const http = axios.create({
+  timeout: REQUEST_TIMEOUT_MS,
+  headers: {
+    'User-Agent': 'one-piece-character-api/1.0 (+https://github.com/eyupfidan/one-piece-character-api)',
+    Accept: 'application/json,text/html;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9'
+  }
+});
+
+function normalizeText(value: string): string {
+  return value.replace(/\[[^\]]+\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeNumber(value: string): string {
+  const cleaned = normalizeText(value);
+  if (!/^\d+$/.test(cleaned)) return cleaned;
+  return String(Number(cleaned));
+}
+
+function textFromCell($: cheerio.CheerioAPI, cell: any, preferLink = false): string {
+  if (preferLink) {
+    const linkText = $(cell).find('a').first().text().trim();
+    if (linkText) return normalizeText(linkText);
+  }
+
+  return normalizeText($(cell).text());
+}
+
+function dedupeByName<T extends { name: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  for (const item of items) {
+    const key = item.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+async function fetchParsedPage(page: string): Promise<string> {
+  const { data } = await http.get(FANDOM_API_URL, {
+    params: {
+      action: 'parse',
+      page,
+      prop: 'text',
+      format: 'json',
+      origin: '*',
+      redirects: 1,
+      disableeditsection: 1,
+      disablelimitreport: 1
+    }
+  });
+
+  const html = data?.parse?.text?.['*'];
+  if (typeof html !== 'string' || !html.trim()) {
+    throw new Error(`MediaWiki API parse response is empty for page "${page}".`);
+  }
+
+  return html;
+}
 
 async function fetchFromSources(pathname: string): Promise<string> {
   const errors: string[] = [];
@@ -17,15 +81,7 @@ async function fetchFromSources(pathname: string): Promise<string> {
     const url = `${baseUrl}${pathname}`;
 
     try {
-      const { data } = await axios.get<string>(url, {
-        timeout: REQUEST_TIMEOUT_MS,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          Referer: 'https://www.google.com/'
-        }
-      });
+      const { data } = await http.get<string>(url);
 
       return data;
     } catch (error: any) {
@@ -60,7 +116,7 @@ function findCharacterAndCrewTables($: cheerio.CheerioAPI): { characterTable: ch
 }
 
 async function getCanonCharactersPage(): Promise<cheerio.CheerioAPI> {
-  const content = await fetchFromSources('/wiki/List_of_Canon_Characters');
+  const content = await fetchParsedPage('List_of_Canon_Characters');
   return cheerio.load(content);
 }
 
@@ -72,14 +128,15 @@ function parseCharacterList($: cheerio.CheerioAPI): Character[] {
     const tds = $(row).find('td');
     if (tds.length < 6) return;
 
-    let letter = $(tds[0]).text().trim();
-    const name = $(tds[1]).text().trim();
-    const chapter = $(tds[2]).text().trim();
-    const episode = $(tds[3]).text().trim();
-    const year = $(tds[4]).text().trim();
-    const note = $(tds[5]).text().trim();
+    let letter = textFromCell($, tds[0]);
+    const name = textFromCell($, tds[1], true);
+    const chapter = normalizeNumber(textFromCell($, tds[2]));
+    const episode = normalizeNumber(textFromCell($, tds[3]));
+    const year = normalizeText($(tds[4]).text());
+    const note = normalizeText($(tds[5]).text());
 
     if (!letter && name) letter = name.charAt(0);
+    if (!name) return;
 
     characters.push({ letter, name, chapter, episode, year, note });
   });
@@ -95,15 +152,16 @@ function parseCrewList($: cheerio.CheerioAPI): Crew[] {
     const tds = $(row).find('td');
     if (tds.length < 7) return;
 
-    let letter = $(tds[0]).text().trim();
-    const name = $(tds[1]).text().trim();
-    const numberOfMembers = $(tds[2]).text().trim();
-    const chapter = $(tds[3]).text().trim();
-    const episode = $(tds[4]).text().trim();
-    const year = $(tds[5]).text().trim();
-    const note = $(tds[6]).text().trim();
+    let letter = textFromCell($, tds[0]);
+    const name = textFromCell($, tds[1], true);
+    const numberOfMembers = normalizeText($(tds[2]).text());
+    const chapter = normalizeNumber(textFromCell($, tds[3]));
+    const episode = normalizeNumber(textFromCell($, tds[4]));
+    const year = normalizeText($(tds[5]).text());
+    const note = normalizeText($(tds[6]).text());
 
     if (!letter && name) letter = name.charAt(0);
+    if (!name) return;
 
     crews.push({ letter, name, numberOfMembers, chapter, episode, year, note });
   });
@@ -118,10 +176,13 @@ export async function getCharacterAndCrewLists(): Promise<{ characters: Characte
     const crews = parseCrewList($);
 
     if (characters.length > 0 && crews.length > 0) {
-      return { characters, crews };
+      return {
+        characters: dedupeByName(characters),
+        crews: dedupeByName(crews)
+      };
     }
-  } catch {
-    // fallback below
+  } catch (error: any) {
+    console.warn('Live character list could not be fetched, using fallback seed:', error.message || error);
   }
 
   return {
@@ -141,11 +202,14 @@ export async function getCrewList(): Promise<Crew[]> {
 }
 
 export async function getCharacterDetails(characterName: string): Promise<string> {
-  const safeName = encodeURIComponent(characterName.replace(/\s+/g, '_'));
+  const pageName = characterName.trim().replace(/\s+/g, '_');
 
   try {
-    return await fetchFromSources(`/wiki/${safeName}`);
-  } catch {
-    return `<section><h2>${characterName}</h2><p>Fallback character detail (network unavailable).</p></section>`;
+    return await fetchParsedPage(pageName);
+  } catch (apiError) {
+    const safeName = encodeURIComponent(pageName);
+    return await fetchFromSources(`/wiki/${safeName}`).catch(() => {
+      throw apiError;
+    });
   }
 }

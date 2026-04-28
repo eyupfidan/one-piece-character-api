@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express';
+import { getOrFetchCharacterDetail } from '../services/characterDetailService';
 import { query } from '../services/dbService';
+import { getSyncStatus } from '../scheduler/dailyScraper';
 
 function parsePagination(queryParams: Request['query']) {
   const limit = Math.min(Math.max(Number(queryParams.limit) || 50, 1), 200);
@@ -100,10 +102,11 @@ export async function exportCharactersCsv(_req: Request, res: Response): Promise
 export async function getCharacterDetail(req: Request, res: Response): Promise<void> {
   try {
     const characterName = req.params.name;
-    const characterDetails = await query('SELECT * FROM character_details WHERE name = ?', [characterName]);
+    const forceRefresh = req.query.refresh === 'true';
+    const characterDetails = await getOrFetchCharacterDetail(characterName, forceRefresh);
 
-    if (characterDetails && characterDetails.length > 0) {
-      res.json(characterDetails[0]);
+    if (characterDetails) {
+      res.json(characterDetails);
       return;
     }
 
@@ -111,6 +114,28 @@ export async function getCharacterDetail(req: Request, res: Response): Promise<v
   } catch (error) {
     console.error('Character detail error:', error);
     res.status(500).json({ error: 'Karakter detay çekilirken hata oluştu' });
+  }
+}
+
+export async function syncStatus(_req: Request, res: Response): Promise<void> {
+  try {
+    const [characterRows, detailRows, crewRows] = await Promise.all([
+      query('SELECT COUNT(*) as total FROM characters'),
+      query('SELECT COUNT(*) as total FROM character_details'),
+      query('SELECT COUNT(*) as total FROM crews')
+    ]);
+
+    res.json({
+      ...getSyncStatus(),
+      database: {
+        characters: Number(characterRows?.[0]?.total || 0),
+        details: Number(detailRows?.[0]?.total || 0),
+        crews: Number(crewRows?.[0]?.total || 0)
+      }
+    });
+  } catch (error) {
+    console.error('Sync status error:', error);
+    res.status(500).json({ error: 'Senkronizasyon durumu alınamadı' });
   }
 }
 

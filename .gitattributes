@@ -1,5 +1,2 @@
-# Keep legacy UTF-16 README untouched to avoid binary-diff PR issues
-README.md -text -diff -merge
-
 # Reduce lockfile merge conflicts in collaborative branches
 package-lock.json merge=union

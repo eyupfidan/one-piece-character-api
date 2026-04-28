@@ -16,7 +16,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /usr/src/app/dist ./dist
 COPY --from=build /usr/src/app/config ./config
-COPY --from=build /usr/src/app/README.en.md ./README.en.md
+COPY --from=build /usr/src/app/README.md ./README.md
 COPY --from=build /usr/src/app/README.tr.md ./README.tr.md
 RUN mkdir -p /usr/src/app/data
 

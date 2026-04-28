@@ -1,5 +1,9 @@
 import type { CheerioAPI } from 'cheerio';
 
+function normalizeValue(value: string): string {
+  return value.replace(/\[[^\]]+\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 export default function extractSectionData(
   $: CheerioAPI,
   sectionTitle: string,
@@ -21,7 +25,7 @@ export default function extractSectionData(
     const mappedField = fieldMapping[dataSource];
     if (!mappedField) return;
 
-    const value = $(item).find('div.pi-data-value.pi-font').text().trim();
+    const value = normalizeValue($(item).find('div.pi-data-value.pi-font').text());
     sectionData[mappedField] = value;
   });
 

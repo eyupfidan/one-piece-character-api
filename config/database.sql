@@ -53,3 +53,9 @@ CREATE TABLE IF NOT EXISTS crews (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
+CREATE INDEX IF NOT EXISTS idx_characters_letter ON characters(letter);
+CREATE INDEX IF NOT EXISTS idx_character_details_name ON character_details(name);
+CREATE INDEX IF NOT EXISTS idx_crews_name ON crews(name);
+CREATE INDEX IF NOT EXISTS idx_crews_letter ON crews(letter);

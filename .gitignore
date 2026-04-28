@@ -1,8 +1,17 @@
+# Dependencies
 node_modules/
-.env
-.DS_Store
 
-# Local SQLite artifacts (binary)
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Local SQLite data and cache
 data/
 *.db
 *.db-*
@@ -10,6 +19,29 @@ data/
 *.sqlite-*
 *.sqlite3
 
-# TypeScript build output
-dist/
-*.tsbuildinfo
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Runtime and temporary files
+tmp/
+temp/
+*.tmp
+*.pid
+*.seed
+
+# OS and editor metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

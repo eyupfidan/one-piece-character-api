@@ -23,6 +23,8 @@ if (sqliteNative?.DatabaseSync) {
   nativeDb = new sqliteNative.DatabaseSync(dbPath);
   nativeDb.exec('PRAGMA foreign_keys = ON;');
   nativeDb.exec('PRAGMA journal_mode = WAL;');
+  nativeDb.exec('PRAGMA synchronous = NORMAL;');
+  nativeDb.exec('PRAGMA busy_timeout = 5000;');
 }
 
 function toSqlLiteral(value: unknown): string {
